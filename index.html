@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MapLibre Geofencing</title>
+    <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.6.0/dist/maplibre-gl.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.6.0/dist/maplibre-gl.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/@ngneat/falso@7.2.0/dist/falso.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-draw@1.4.0/dist/mapbox-gl-draw.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-draw@1.4.0/dist/mapbox-gl-draw.css" rel="stylesheet" />
+    <style>
+      body {
+        margin: 0;
+        height: 100vh;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+      }
+
+      #map {
+        width: 100vw;
+        height: 100vh;
+      }
+
+      #status {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        z-index: 1;
+        white-space: nowrap;
+        border: 2px solid transparent;
+        transition: border-color 0.5s;
+      }
+
+      .status-ping {
+        border-color: red;
+        animation: ping-border 1.5s infinite;
+      }
+
+      @keyframes ping-border {
+        0% {
+          border-color: red;
+          box-shadow: 0 0 0 2px rgba(255, 0, 0, 0.6);
+        }
+        50% {
+          box-shadow: 0 0 10px 5px rgba(255, 0, 0, 0.3);
+        }
+        100% {
+          box-shadow: 0 0 20px 10px rgba(255, 0, 0, 0);
+        }
+      }
+
+      .indicator {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 10px;
+        background-color: #00ff00;
+      }
+
+      #simulation-btn {
+        position: fixed;
+        bottom: 90px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #007bff;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        z-index: 2;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+        font-size: 16px;
+        transition: background-color 0.3s ease;
+      }
+
+      #simulation-btn.stop {
+        background-color: #dc3545;
+      }
+
+      #cursor-coords {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 5px;
+        border-radius: 4px;
+        font-size: 12px;
+        pointer-events: none;
+        z-index: 2;
+        display: none;
+      }
+
+      #debug-btn {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        background-color: #007bff;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        z-index: 2;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+        font-size: 16px;
+        transition: background-color 0.3s ease;
+      }
+
+      #debug-btn.hide {
+        background-color: #dc3545;
+      }
+
+      #draw-btn {
+        position: fixed;
+        bottom: 70px; /* Positioned above the debug button */
+        left: 20px;
+        background-color: #007bff;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        z-index: 2;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+        font-size: 16px;
+        transition: background-color 0.3s ease;
+      }
+
+      #draw-btn.close {
+        background-color: #dc3545; /* Red background for close state */
+      }
+
+      #copy-btn {
+        position: fixed;
+        bottom: 120px; /* Positioned above the draw button */
+        left: 20px;
+        background-color: #28a745; /* Green background color */
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        z-index: 2;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+        font-size: 16px;
+        transition: background-color 0.3s ease;
+        display: none;
+      }
+
+      #coordinates-output {
+        position: fixed;
+        bottom: 180px; /* Positioned above the copy button */
+        left: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        pointer-events: none;
+        z-index: 2;
+        width: 300px; /* Expanded width */
+        height: 150px; /* Expanded height */
+        overflow: auto; /* Allows scrolling if needed */
+        display: none;
+      }
+
+      .tooltip {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.75);
+        color: white;
+        padding: 5px;
+        border-radius: 4px;
+        font-size: 12px;
+        pointer-events: none;
+        display: none;
+        z-index: 3;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="status">
+      <div id="indicator" class="indicator"></div>
+      <span id="status-text">Marker status will appear here.</span>
+    </div>
+    <div id="simulation-btn">Start Simulation</div>
+    <div id="cursor-coords"></div>
+    <button id="debug-btn">Show Coordinates</button>
+    <button id="draw-btn">Draw Geofence</button>
+    <button id="copy-btn">Copy Coordinates</button>
+    <textarea id="coordinates-output" readonly></textarea>
+
+    <script>
+      function initializeMap() {
+        if (typeof maplibregl === "undefined" || typeof turf === "undefined") {
+          console.error("MapLibre GL or Turf.js is not loaded.");
+          return;
+        }
+
+        const map = new maplibregl.Map({
+          container: "map",
+          style: {
+            version: 8,
+            sources: {
+              osm: {
+                type: "raster",
+                tiles: [
+                  "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                  "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                  "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                ],
+                tileSize: 256,
+                maxzoom: 19
+              }
+            },
+            layers: [
+              {
+                id: "osm",
+                type: "raster",
+                source: "osm"
+              }
+            ]
+          },
+          center: [-0.1457, 51.4795],
+          zoom: 16
+        });
+
+        const marker = new maplibregl.Marker({
+          draggable: true
+        })
+          .setLngLat([-0.14961920294274478, 51.475844791624354])
+          .addTo(map);
+
+        let shapesLoaded = false;
+
+        function createCirclePolygon(center, radius) {
+          const circle = turf.circle(center, radius, { steps: 64, units: "meters" });
+          return circle;
+        }
+
+        function loadShapes() {
+          if (shapesLoaded) return;
+
+          const shapesUrl = "geofences.json";
+
+          fetch(shapesUrl)
+            .then(response => response.json())
+            .then(data => {
+              const shapesData = data;
+
+              if (shapesData && shapesData.features) {
+                shapesData.features.forEach((feature, index) => {
+                  const shapeId = `shape-${index}`;
+
+                  if (!map.getSource(shapeId)) {
+                    map.addSource(shapeId, {
+                      type: "geojson",
+                      data: feature
+                    });
+
+                    const color = feature.properties.color || "#FF0000"; // Changed to red
+
+                    map.addLayer({
+                      id: shapeId,
+                      type: "fill",
+                      source: shapeId,
+                      paint: {
+                        "fill-color": color,
+                        "fill-opacity": 0.4
+                      }
+                    });
+                  }
+                });
+                shapesLoaded = true;
+              }
+            })
+            .catch(error => {
+              console.error("Failed to load shapes:", error);
+            });
+        }
+
+        function loadAccessPoints() {
+          fetch("access_points.json")
+            .then(response => response.json())
+            .then(data => {
+              if (!data || !data.coordinates) {
+                console.error("Invalid access points data format");
+                return;
+              }
+
+              const accessPointsData = {
+                type: "FeatureCollection",
+                features: data.coordinates.map((coord, index) => ({
+                  type: "Feature",
+                  geometry: createCirclePolygon(coord.center, coord.radius).geometry,
+                  properties: {
+                    color: "#800080" // Default color is purple
+                  },
+                  id: index // Add a unique ID for each feature
+                }))
+              };
+
+              if (map.getSource("access-points")) {
+                map.getSource("access-points").setData(accessPointsData);
+              } else {
+                map.addSource("access-points", {
+                  type: "geojson",
+                  data: accessPointsData
+                });
+
+                map.addLayer({
+                  id: "access-points-layer",
+                  type: "fill",
+                  source: "access-points",
+                  paint: {
+                    "fill-color": [
+                      "case",
+                      ["boolean", ["feature-state", "highlight"], false],
+                      "#FFA500", // Orange if highlighted
+                      "#800080" // Purple otherwise
+                    ],
+                    "fill-opacity": 0.4
+                  }
+                });
+              }
+            })
+            .catch(error => console.error("Failed to load access points data:", error));
+        }
+
+        function isPointInPolygon(point, polygonCoords) {
+          let [x, y] = point;
+          let inside = false;
+          for (let i = 0, j = polygonCoords.length - 1; i < polygonCoords.length; j = i++) {
+            let [xi, yi] = polygonCoords[i];
+            let [xj, yj] = polygonCoords[j];
+            let intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+            if (intersect) inside = !inside;
+          }
+          return inside;
+        }
+
+        function updateAccessPointsColor(markerCoordinates) {
+          const accessPointsSource = map.getSource("access-points");
+          if (accessPointsSource) {
+            const features = accessPointsSource._data.features;
+
+            features.forEach(feature => {
+              const polygonCoords = feature.geometry.coordinates[0];
+              const isInside = isPointInPolygon(markerCoordinates, polygonCoords);
+
+              map.setFeatureState({ source: "access-points", id: feature.id }, { highlight: isInside });
+            });
+          }
+        }
+
+        function updateMarkerPosition() {
+          const lngLat = marker.getLngLat();
+          const markerCoordinates = [lngLat.lng, lngLat.lat];
+
+          let insideGeofence = false;
+          let insideAccessPoint = false;
+          let breachedGeofenceName = "";
+
+          // Check if marker is inside any geofence
+          const layers = map.getStyle().layers;
+          if (layers) {
+            for (let feature of layers) {
+              if (feature.type === "fill" && feature.id.startsWith("shape-")) {
+                const shapeId = feature.id;
+                const source = map.getSource(shapeId);
+                if (source && source._data && source._data.geometry) {
+                  const polygonCoords = source._data.geometry.coordinates[0];
+                  if (isPointInPolygon(markerCoordinates, polygonCoords)) {
+                    insideGeofence = true;
+                    breachedGeofenceName = source._data.properties.name || "Unnamed Shape";
+                    break; // Exit loop as soon as we find the marker inside a geofence
+                  }
+                }
+              }
+            }
+          }
+
+          // Check if marker is inside any access point
+          const accessPointsSource = map.getSource("access-points");
+          if (accessPointsSource) {
+            const features = accessPointsSource._data.features;
+            features.forEach(feature => {
+              const polygonCoords = feature.geometry.coordinates[0];
+              if (isPointInPolygon(markerCoordinates, polygonCoords)) {
+                insideAccessPoint = true;
+              }
+            });
+          }
+
+          // Update status box and indicator based on the checks
+          const indicator = document.getElementById("indicator");
+          const statusBox = document.getElementById("status");
+          if (insideGeofence && insideAccessPoint) {
+            indicator.style.backgroundColor = "#FF0000"; // Red for inside both
+            statusBox.classList.add("status-ping"); // Add ping effect
+            document.getElementById("status-text").innerText = `${breachedGeofenceName} User has breached an assigned geofence.`;
+          } else {
+            indicator.style.backgroundColor = "#00FF00"; // Green if not breached
+            statusBox.classList.remove("status-ping"); // Remove ping effect
+            document.getElementById("status-text").innerText = "User is outside of all assigned geofences.";
+          }
+
+          // Update access points color
+          updateAccessPointsColor(markerCoordinates);
+        }
+
+        marker.on("dragend", updateMarkerPosition);
+
+        map.on("styledata", () => {
+          loadShapes(); // Load shapes when the style is done loading
+          loadAccessPoints(); // Load access points
+          updateMarkerPosition(); // Initial status check
+        });
+
+        let simulationInterval;
+        const simulationBtn = document.getElementById("simulation-btn");
+
+        simulationBtn.addEventListener("click", () => {
+          if (simulationBtn.classList.contains("stop")) {
+            clearInterval(simulationInterval);
+            simulationBtn.innerText = "Start Simulation";
+            simulationBtn.classList.remove("stop");
+          } else {
+            fetch("simulation.json")
+              .then(response => response.json())
+              .then(data => {
+                if (!data || !data.coordinates) {
+                  console.error("Invalid simulation data format");
+                  return;
+                }
+
+                let index = 0;
+                simulationInterval = setInterval(() => {
+                  if (index < data.coordinates.length) {
+                    const [lng, lat] = data.coordinates[index];
+                    marker.setLngLat([lng, lat]);
+                    updateMarkerPosition();
+                    index++;
+                  } else {
+                    clearInterval(simulationInterval);
+                    simulationBtn.innerText = "Start Simulation";
+                    simulationBtn.classList.remove("stop");
+                  }
+                }, 1000);
+                simulationBtn.innerText = "Stop Simulation";
+                simulationBtn.classList.add("stop");
+              })
+              .catch(error => console.error("Failed to load simulation data:", error));
+          }
+        });
+
+        const debugBtn = document.getElementById("debug-btn");
+        const cursorCoords = document.getElementById("cursor-coords");
+
+        cursorCoords.style.display = "none";
+
+        debugBtn.addEventListener("click", () => {
+          if (cursorCoords.style.display === "none") {
+            cursorCoords.style.display = "block";
+            debugBtn.innerText = "Hide Coordinates";
+            debugBtn.classList.add("hide");
+          } else {
+            cursorCoords.style.display = "none";
+            debugBtn.innerText = "Show Coordinates";
+            debugBtn.classList.remove("hide");
+          }
+        });
+
+        map.on("mousemove", e => {
+          const lngLat = e.lngLat;
+          cursorCoords.style.left = `${e.point.x + 10}px`;
+          cursorCoords.style.top = `${e.point.y + 10}px`;
+          cursorCoords.innerText = `Lng: ${lngLat.lng.toFixed(4)}, Lat: ${lngLat.lat.toFixed(4)}`;
+        });
+
+        // Mapbox Draw Setup
+        const draw = new MapboxDraw({
+          displayControlsDefault: false,
+          controls: {
+            polygon: true
+          },
+          styles: [
+            {
+              id: "gl-draw-polygon-fill-inactive",
+              type: "fill",
+              filter: ["==", "$type", "Polygon"],
+              paint: {
+                "fill-color": "#FF0000", // Red fill color
+                "fill-opacity": 0.2
+              }
+            },
+            {
+              id: "gl-draw-polygon-stroke-inactive",
+              type: "line",
+              filter: ["==", "$type", "Polygon"],
+              paint: {
+                "line-color": "#FF0000", // Red outline color
+                "line-width": 2
+              }
+            }
+          ]
+        });
+
+        map.addControl(draw);
+
+        const drawBtn = document.getElementById("draw-btn");
+        const copyBtn = document.getElementById("copy-btn");
+        const coordinatesOutput = document.getElementById("coordinates-output");
+
+        drawBtn.addEventListener("click", () => {
+          drawBtn.disabled = true; // Disable draw button while drawing
+          draw.deleteAll(); // Clear any previous drawings
+          coordinatesOutput.style.display = "none";
+          copyBtn.style.display = "none";
+          draw.changeMode("draw_polygon"); // Use draw mode directly
+        });
+
+        map.on("draw.create", e => {
+          drawnPolygon = e.features[0];
+          coordinatesOutput.innerText = JSON.stringify(drawnPolygon.geometry.coordinates);
+          coordinatesOutput.style.display = "block";
+          copyBtn.style.display = "block";
+          drawBtn.disabled = false;
+        });
+
+        copyBtn.addEventListener("click", () => {
+          navigator.clipboard
+            .writeText(coordinatesOutput.value)
+            .then(() => {
+              alert("Coordinates copied to clipboard!");
+            })
+            .catch(err => {
+              console.error("Failed to copy coordinates: ", err);
+            });
+        });
+      }
+
+      document.addEventListener("DOMContentLoaded", initializeMap);
+    </script>
+  </body>
+</html>
